@@ -1,21 +1,30 @@
-
-# backend/app/api/auth.py
+from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel
 import boto3
-from fastapi import APIRouter, HTTPException
-from botocore.exceptions import NoCredentialsError, PartialCredentialsError
+from botocore.exceptions import ClientError
 
 router = APIRouter()
 
-@router.post("/verify-credentials/")
-async def verify_credentials(access_key: str, secret_key: str):
-    try:
-        # Initialize a Boto3 client
-        client = boto3.client('sts', aws_access_key_id=access_key, aws_secret_access_key=secret_key)
-        # Call the AWS STS service to verify credentials
-        client.get_caller_identity()
-        return {"message": "AWS credentials are valid"}
-    except (NoCredentialsError, PartialCredentialsError) as e:
-        raise HTTPException(status_code=400, detail="Invalid AWS credentials")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail="Error verifying credentials")
+class AWSCredentials(BaseModel):
+    access_key: str
+    secret_key: str
 
+@router.post("/validate-aws")
+def validate_aws_credentials(creds: AWSCredentials):
+    try:
+        sts = boto3.client(
+            "sts",
+            aws_access_key_id=creds.access_key,
+            aws_secret_access_key=creds.secret_key
+        )
+        response = sts.get_caller_identity()
+        return {
+            "message": "Valid credentials",
+            "account": response["Account"],
+            "arn": response["Arn"]
+        }
+    except ClientError:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid AWS credentials"
+        )
